@@ -245,6 +245,7 @@ export const CustomFilter = () => {
               <ButtonKey rawKey={RawKey.Alt} className="flex-1" />
               <ButtonKey rawKey={RawKey.MetaLeft} className="flex-1" />
               <ButtonKey rawKey={RawKey.Space} className="flex-4" flexGrow />
+              <ButtonKey rawKey={RawKey.AltGr} className="flex-1" />
               <ButtonKey rawKey={RawKey.ControlRight} className="flex-1" />
               <ButtonKey rawKey={RawKey.LeftArrow} />
               <ButtonKey rawKey={RawKey.DownArrow} />

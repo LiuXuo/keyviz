@@ -1,4 +1,4 @@
-use std::{sync::Mutex, thread};
+use std::{collections::BTreeSet, sync::Mutex, thread};
 
 use rdev::{listen, Button, EventType};
 use serde::Serialize;
@@ -32,6 +32,26 @@ pub fn map_mouse_button(button: Button) -> MouseButton {
     }
 }
 
+fn shortcut_key_name(key_name: &str) -> &str {
+    match key_name {
+        "Shift" | "ShiftLeft" | "ShiftRight" => "Shift",
+        "Control" | "ControlLeft" | "ControlRight" => "Control",
+        "Alt" | "AltGr" => "Alt",
+        "Meta" | "MetaLeft" | "MetaRight" => "Meta",
+        _ => key_name,
+    }
+}
+
+fn shortcut_signature(keys: &[String]) -> BTreeSet<String> {
+    keys.iter()
+        .map(|key_name| shortcut_key_name(key_name).to_string())
+        .collect()
+}
+
+fn matches_toggle_shortcut(toggle_shortcut: &[String], pressed_keys: &[String]) -> bool {
+    shortcut_signature(toggle_shortcut) == shortcut_signature(pressed_keys)
+}
+
 pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
     thread::spawn(move || {
         println!("Starting global input listener...");
@@ -55,7 +75,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 // record key as pressed
                 app_state.pressed_keys.push(key_name);
                 // check if toggle shortcut is pressed
-                if app_state.toggle_shortcut == app_state.pressed_keys {
+                if matches_toggle_shortcut(&app_state.toggle_shortcut, &app_state.pressed_keys) {
                     app_state.toggle_listener(&app_handle, &toggle_menu_item);
 
                     if !app_state.listening {
@@ -133,4 +153,45 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
             eprintln!("rdev listen failed: {:?}", err);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_toggle_shortcut;
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn matches_left_or_right_alt_for_logical_alt_shortcuts() {
+        assert!(matches_toggle_shortcut(
+            &strings(&["Alt", "F10"]),
+            &strings(&["AltGr", "F10"])
+        ));
+        assert!(matches_toggle_shortcut(
+            &strings(&["Alt", "F10"]),
+            &strings(&["Alt", "F10"])
+        ));
+    }
+
+    #[test]
+    fn matches_shortcuts_regardless_of_modifier_side_or_order() {
+        assert!(matches_toggle_shortcut(
+            &strings(&["Shift", "F10"]),
+            &strings(&["F10", "ShiftRight"])
+        ));
+        assert!(matches_toggle_shortcut(
+            &strings(&["ControlLeft", "KeyK"]),
+            &strings(&["KeyK", "ControlRight"])
+        ));
+    }
+
+    #[test]
+    fn does_not_match_when_extra_non_alias_keys_are_pressed() {
+        assert!(!matches_toggle_shortcut(
+            &strings(&["Shift", "F10"]),
+            &strings(&["ShiftLeft", "F10", "KeyA"])
+        ));
+    }
 }
