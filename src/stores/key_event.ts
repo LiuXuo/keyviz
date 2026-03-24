@@ -7,6 +7,7 @@ import { createSyncedStore } from "./sync";
 
 export const KEY_EVENT_STORE = "key_event_store";
 const SCROLL_LINGER_MS = 300;
+const CAPS_LOCK_LINGER_MS = 300;
 
 interface KeyGroup {
     keys: KeyEvent[];
@@ -16,6 +17,7 @@ interface KeyGroup {
 export interface KeyEventState {
     // ───────────── physical state ─────────────
     pressedKeys: string[];
+    lastCapsLockAt?: number;
     pressedMouseButton: MouseButton | null;
     mouse: {
         x: number;
@@ -66,6 +68,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
     KEY_EVENT_STORE,
     (set, get) => ({
         pressedKeys: <string[]>[],
+        lastCapsLockAt: undefined,
         pressedMouseButton: null,
         mouse: { x: 0, y: 0, wheel: 0, dragging: false },
         groups: <KeyGroup[]>[],
@@ -207,7 +210,11 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
                 groups = groups.slice(groups.length - state.maxHistory);
             }
 
-            set({ pressedKeys, groups });
+            set({
+                pressedKeys,
+                groups,
+                lastCapsLockAt: event.name === RawKey.CapsLock ? Date.now() : state.lastCapsLockAt
+            });
         },
         ignoreEvent(pressedKeys) {
             const state = get();
@@ -231,9 +238,16 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
             const kIndex = last >= 0 ? groups[last].keys.findIndex(key => key.name === event.name) : undefined;
             if (kIndex && kIndex >= 0) {
                 groups[last].keys[kIndex].lastPressedAt = Date.now();
-                set({ pressedKeys, groups });
+                set({
+                    pressedKeys,
+                    groups,
+                    lastCapsLockAt: event.name === RawKey.CapsLock ? undefined : state.lastCapsLockAt
+                });
             } else {
-                set({ pressedKeys });
+                set({
+                    pressedKeys,
+                    lastCapsLockAt: event.name === RawKey.CapsLock ? undefined : state.lastCapsLockAt
+                });
             }
         },
         onMouseMove(event: MouseMoveEvent) {
@@ -320,15 +334,29 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         onMouseWheel(event: MouseWheelEvent) {
             // bug: history mode, ctrl + scroll, scroll
             const state = get();
+            const wheel = Math.sign(event.delta_y);
+
+            if (wheel === 0) return;
+
+            const raw_key = wheel > 0 ? RawKey.ScrollUp : RawKey.ScrollDown;
+            const previous_raw_key = state.mouse.wheel > 0 ? RawKey.ScrollUp : RawKey.ScrollDown;
+
+            if (
+                state.mouse.wheel !== 0 &&
+                state.mouse.wheel !== wheel &&
+                state.pressedKeys.includes(previous_raw_key)
+            ) {
+                state.onKeyRelease({ type: "KeyEvent", name: previous_raw_key, pressed: false });
+            }
+
             // update mouse wheel state
             const mouse = {
                 ...state.mouse,
-                wheel: Math.sign(event.delta_y), // -1 for up, 1 for down
+                wheel, // -1 for down, 1 for up
                 lastScrollAt: Date.now()
             };
-            const raw_key = event.delta_y > 0 ? RawKey.ScrollUp : RawKey.ScrollDown;
             // simulate mouse wheel as key press
-            if (!state.pressedKeys.includes(raw_key)) {
+            if (!get().pressedKeys.includes(raw_key)) {
                 state.onKeyPress({ type: "KeyEvent", name: raw_key, pressed: true });
             }
 
@@ -344,9 +372,21 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
 
             // handle scroll linger
             if (state.mouse.lastScrollAt && now - state.mouse.lastScrollAt > SCROLL_LINGER_MS) {
-                // simulate scroll key release
-                state.onKeyRelease({ type: "KeyEvent", name: state.mouse.wheel > 0 ? RawKey.ScrollUp : RawKey.ScrollDown, pressed: false });
+                if (state.pressedKeys.includes(RawKey.ScrollUp)) {
+                    state.onKeyRelease({ type: "KeyEvent", name: RawKey.ScrollUp, pressed: false });
+                }
+                if (state.pressedKeys.includes(RawKey.ScrollDown)) {
+                    state.onKeyRelease({ type: "KeyEvent", name: RawKey.ScrollDown, pressed: false });
+                }
                 set({ mouse: { ...state.mouse, wheel: 0, lastScrollAt: undefined } });
+            }
+
+            if (
+                state.lastCapsLockAt &&
+                now - state.lastCapsLockAt > CAPS_LOCK_LINGER_MS &&
+                state.pressedKeys.includes(RawKey.CapsLock)
+            ) {
+                state.onKeyRelease({ type: "KeyEvent", name: RawKey.CapsLock, pressed: false });
             }
 
             // don't remove keys while styling
@@ -380,7 +420,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         name: KEY_EVENT_STORE,
         storage: createJSONStorage(() => tauriStorage),
         partialize: (state) => {
-            const { pressedKeys, pressedMouseButton, mouse, groups, settingsOpen, ...persistedState } = state;
+            const { pressedKeys, lastCapsLockAt, pressedMouseButton, mouse, groups, settingsOpen, ...persistedState } = state;
             return persistedState;
         },
     }),

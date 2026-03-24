@@ -484,10 +484,30 @@ export const keymaps: Record<string, DisplayData> = {
         label: switchPlatform({
             windows: "alt",
             macos: "option",
+            linux: "alt",
         }),
         shortLabel: switchPlatform({
             windows: "alt",
             macos: "opt",
+            linux: "alt",
+        }),
+        glyph: "⌥",
+        icon: OptionIcon,
+        category: "modifier",
+    };
+});
+
+['AltGr'].forEach((key) => {
+    keymaps[key] = {
+        label: switchPlatform({
+            windows: "alt gr",
+            macos: "option",
+            linux: "alt gr",
+        }),
+        shortLabel: switchPlatform({
+            windows: "alt gr",
+            macos: "opt",
+            linux: "alt gr",
         }),
         glyph: "⌥",
         icon: OptionIcon,
